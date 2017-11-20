@@ -1,0 +1,151 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Scott Jones"
+date: "19 November 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(caret)
+library(randomForest)
+library(gbm)
+library(rpart)
+library(e1071)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+The aim of this work will be to use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants to predict whether an exercise was carried out correctly. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. We were given two files with this information; a training data file of 19622 observations and a test data file of 20 observations. There are 159 fields in the data, together with an unlabelled row index. The "classe" field shows whether the exercise was carried out correctly, and will be the basis of the model.
+
+More information on the data set is available here: 
+
+http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+
+## Prepare the data
+
+Before building any models, three tasks were carried out to give a more useful data set
+
+1) On manual inspection, the first six columns seemed to contain metadata, such as the user name or a timestamp. Although it's possible that these may have some predictive utility, at this stage these fields will be ignored:
+
+2) Again, on manual inspection, a number of the variables appear to be either blank or populated with N/A. A zero value would be entirely approriate for any particular exercise, but blanks and NAs are unlikely to contribute to the model, so will be ignored.
+
+3) A number of variables appear to have almost no variance, so are unlikely to have any impact on a predictive model. These "Near Zero Variance" fields will be removed.
+
+4) The model will be evaluated using the test data file of twenty records. To find the best model, we'll need to split the training data into two parts; 70% will be used for training the model, and 30% for validating it. 
+
+```{r prepare}
+
+#download files from urls
+#training_url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#download.file(url=training_url, destfile="training.csv")
+
+#testing_url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+#download.file(url=testing_url, destfile="testing.csv")
+
+#read in the training and testing data
+training <- read.csv('training.csv', header=TRUE)
+validation <- read.csv('testing.csv', header=TRUE)
+
+#split the training data into training and testing partitions
+set.seed(12345)
+training_sample <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+training1 <- training[training_sample, ]
+testing1 <- training[-training_sample, ]
+
+#find columns with zero data and metadata
+all_zero_colnames <- sapply(names(validation), function(x) all(is.na(validation[,x])==TRUE))
+nonzeronames <- names(all_zero_colnames)[all_zero_colnames==FALSE]
+nonzeronames <- nonzeronames[-(1:7)]
+nonzeronames <- nonzeronames[1:(length(nonzeronames)-1)]
+
+
+
+
+
+
+```
+
+## Select and Train models
+
+Three different model algorithms will be tried, to see which of the three provides the best out-of-sample accuracy. The three algorithms are:
+    
+1) Random Forest decision trees (rf)
+2) Gradient boosting model (gbm)
+3) Decision trees - CART in R (rpart)
+
+
+```{r models, , results="hide"}
+
+fitControl <- trainControl(method='cv', number = 3)
+
+model_rf <- train(
+  classe ~ ., 
+  data=training[, c('classe', nonzeronames)],
+  trControl=fitControl,
+  method='rf',
+  ntree=100
+)
+save(model_rf, file='./ModelFitRF.RData')
+
+model_gbm <- train(
+  classe ~ ., 
+  data=training[, c('classe', nonzeronames)],
+  trControl=fitControl,
+  method='gbm'
+)
+save(model_gbm, file='./ModelFitGBM.RData')
+
+model_cart <- train(
+  classe ~ ., 
+  data=training[, c('classe', nonzeronames)],
+  trControl=fitControl,
+  method='rpart'
+)
+save(model_cart, file='./ModelFitCART.RData')
+
+```
+
+## Evaluate models
+
+We can compare the accuracy of each of the three models here:
+
+```{r evaluate}
+
+predRF <- predict(model_rf, newdata=testing1)
+cmRF <- confusionMatrix(predRF, testing1$classe)
+
+predGBM <- predict(model_gbm, newdata=testing1)
+cmGBM <- confusionMatrix(predGBM, testing1$classe)
+
+predCART <- predict(model_cart, newdata=testing1)
+cmCART <- confusionMatrix(predCART, testing1$classe)
+
+AccuracyResults <- data.frame(
+  Model = c('RF','GBM','CART'),
+  Accuracy = rbind(cmRF$overall[1],cmGBM$overall[1],cmCART$overall[1])
+)
+print(AccuracyResults)
+
+```
+...it appears theat the random forest model is the most accurate of the three; it appears to be so accurate in this case that it would not be worthwhile combining the three models to build a better one.
+
+## Predicting the test set
+
+...and finally, here's the prediction using the rf model on the validation data:
+
+```{r predict}
+
+predValidation <- predict(model_rf, newdata=validation)
+ValidationPredictionResults <- data.frame(
+  problem_id=validation$problem_id,
+  predicted=predValidation
+)
+print(ValidationPredictionResults)
+
+```
+
+
+
